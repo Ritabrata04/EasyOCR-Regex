@@ -9,6 +9,9 @@ from PIL import Image, ImageEnhance, ImageFilter
 import numpy as np
 import csv
 import os
+import joblib
+
+model = joblib.load(r'C:\Users\Ritabrata\Downloads\66e31d6ee96cd_student_resource_3\trained_model.pkl')  # Assuming model.pkl is your trained model
 
 # Initialize EasyOCR reader with multiple languages
 reader = easyocr.Reader(['en', 'fr', 'de', 'es'], gpu=True)
@@ -142,7 +145,6 @@ def deskew(image):
 
 # Function to process a batch of data
 def process_batch(batch_df, batch_number):
-    # Output CSV file for the batch
     output_csv = f'output_predictions_batch_{batch_number}.csv'
 
     # Check if the output CSV file already exists
@@ -165,14 +167,13 @@ def process_batch(batch_df, batch_number):
         writer.writeheader()
 
     try:
-        # Process each image with progress bar
         for idx, row in tqdm(batch_df.iterrows(), total=len(batch_df), desc=f'Processing batch {batch_number}', unit='image'):
             index = row['index']
-            image_link = row['image_link']  # Adjust if the column name is different
+            image_link = row['image_link']
             entity_name = row['entity_name'].lower()
             allowed_units = entity_unit_map.get(entity_name, set())
 
-            prediction = ''  # Default empty prediction
+            prediction = ''
 
             # Download image
             try:
@@ -181,19 +182,18 @@ def process_batch(batch_df, batch_number):
             except Exception as e:
                 tqdm.write(f"Error downloading image at index {index}: {e}")
                 writer.writerow({'index': index, 'prediction': prediction})
-                continue  # Skip to the next image
+                continue
 
             # Preprocess image
             image = deskew(image)
-            gray_image = image.convert('L')  # Grayscale
+            gray_image = image.convert('L')
             enhancer = ImageEnhance.Contrast(gray_image)
-            enhanced_image = enhancer.enhance(2.0)  # Increase contrast
-            enhanced_image = enhanced_image.filter(ImageFilter.SHARPEN)  # Sharpen
+            enhanced_image = enhancer.enhance(2.0)
+            enhanced_image = enhanced_image.filter(ImageFilter.SHARPEN)
 
             # Perform OCR on the enhanced image
             try:
                 ocr_result = reader.readtext(np.array(enhanced_image), detail=0)
-                # Since detail=0, ocr_result is a list of strings
                 recognized_texts = ocr_result
                 tqdm.write(f"OCR result for index {index}: {recognized_texts}")
             except Exception as e:
@@ -205,10 +205,16 @@ def process_batch(batch_df, batch_number):
             measurements = extract_measurements(recognized_texts, allowed_units)
             tqdm.write(f"Measurements extracted for index {index}: {measurements}")
 
-            if measurements:
-                # Take the first extracted measurement
-                prediction = measurements[0]
-            else:
+            # Format input for the model
+            input_text = ' '.join(ocr_result) + ' ' + entity_name
+
+            # Make predictions using the model
+            try:
+                predicted_value = model.predict([input_text])[0]
+                # Format the prediction
+                prediction = f"{predicted_value:.2f}"
+            except Exception as e:
+                tqdm.write(f"Model prediction failed for index {index}: {e}")
                 prediction = ''
 
             # Write the prediction to the CSV file immediately
@@ -226,44 +232,22 @@ def process_batch(batch_df, batch_number):
 
 # Main script
 if __name__ == '__main__':
-    # Read test CSV file
-    input_csv = r'student_resource 3\dataset\test.csv'  # Update the path as needed
+    input_csv = r'C:\Users\Ritabrata\Downloads\66e31d6ee96cd_student_resource_3\student_resource 3\dataset\test.csv'
     df = pd.read_csv(input_csv)
 
     total_entries = len(df)
     batch_size = total_entries // 4
-    batches = []
 
     # Divide the data into 4 batches
-    # Batch 1: indices 0 to batch_size - 1
-    # Batch 2: indices batch_size to 2*batch_size - 1
-    # Batch 3: indices 2*batch_size to 3*batch_size - 1
-    # Batch 4: indices 3*batch_size to end
-    # Note: Adjust the ranges to ensure all entries are included
-
-    # Batch 1
     batch1_df = df.iloc[0:batch_size].reset_index(drop=True)
-    # Batch 2
     batch2_df = df.iloc[batch_size:2*batch_size].reset_index(drop=True)
-    # Batch 3
     batch3_df = df.iloc[2*batch_size:3*batch_size].reset_index(drop=True)
-    # Batch 4
     batch4_df = df.iloc[3*batch_size:].reset_index(drop=True)
 
     # Process each batch separately
-    # You can comment/uncomment the batches you want to process
-
-    # Process Batch 1
     process_batch(batch1_df, batch_number=1)
-'''
-    # Process Batch 2
-    process_batch(batch2_df, batch_number=2)
-
-    # Process Batch 3
-    process_batch(batch3_df, batch_number=3)
-
-    # Process Batch 4
-    process_batch(batch4_df, batch_number=4)
+    #process_batch(batch2_df, batch_number=2)
+    #process_batch(batch3_df, batch_number=3)
+    #process_batch(batch4_df, batch_number=4)
 
     print("All batches processed.")
-'''
